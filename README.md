@@ -1,0 +1,39 @@
+# WQF7006 Computer Vision and Image Processing - Assignment
+
+Case Study: Malaysian Sign Language
+
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) package manager
+
+## Setup
+
+Install the dev dependencies:
+
+```bash
+uv sync --dev --extra cpu
+# If you have a CUDA-enabled GPU, you can install the GPU version:
+# uv sync --dev --extra cu130
+```
+
+Add extra packages if needed:
+
+```bash
+uv add <package-name>
+```
+
+## Development
+
+Use jupyter lab/notebook for development:
+
+```bash
+# Do this
+.venv/Scripts/activate  # On Windows
+source .venv/bin/activate  # On macOS/Linux
+jupyter lab # jupyter notebook
+
+# Or this
+uv run jupyter lab  # uv run jupyter notebook
+```
+
+Or use any IDE/text editor :)

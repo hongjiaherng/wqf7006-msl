@@ -1,0 +1,57 @@
+[project]
+name = "wqf7006-msl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "hongjiaherng", email = "jiaherng2001@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "mediapipe>=0.10.21",
+    "opencv-python>=4.11.0.86",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
+    "ipywidgets>=8.1.8",
+    "jupyter>=1.1.1",
+    "ruff>=0.14.9",
+]
+
+[project.optional-dependencies]
+cpu = ["torch>=2.9.0", "torchvision>=0.24.0"]
+cu130 = ["torch>=2.9.0", "torchvision>=0.24.0"]
+
+[project.scripts]
+wqf7006-msl = "wqf7006_msl:main"
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+override-dependencies = ["numpy>=2.3.5"]
+conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
