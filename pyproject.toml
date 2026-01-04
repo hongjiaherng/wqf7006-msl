@@ -6,8 +6,10 @@ readme = "README.md"
 authors = [{ name = "hongjiaherng", email = "jiaherng2001@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
+    "av>=16.0.1",
     "matplotlib>=3.10.8",
     "mediapipe>=0.10.21",
+    "numpy>=2.3.5",
     "opencv-python>=4.11.0.86",
     "pandas>=2.3.3",
     "scikit-learn>=1.8.0",

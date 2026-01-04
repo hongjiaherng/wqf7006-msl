@@ -8,8 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+.DS_Store
 
+data/**/*.npy
 data/**/*.mp4
 data/**/*DS_DIR_HDR
 
 .env
+weights/*
+!weights/.gitkeep
