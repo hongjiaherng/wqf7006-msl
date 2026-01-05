@@ -1,8 +1,8 @@
 import mediapipe as mp
 import numpy as np
 import streamlit as st
-import torch, cv2, io, av
-from streamlit_webrtc import VideoProcessorBase
+import torch, cv2, io, av, threading
+from collections import deque
 
 mp_holistic = mp.solutions.holistic # Holistic model
 mp_drawing = mp.solutions.drawing_utils # Drawing utilities
@@ -129,7 +129,7 @@ def generate_subtitle_from_video(_cap, device, model):
                 # print(f"frames: {len(sequence)}, Prediction: {predicted_label} ({confidence:.2f})")
 
                 # threshold logic
-                detected_label = predicted_label if confidence > 0.9 else None
+                detected_label = predicted_label if confidence > 0.95 else None
 
                 if detected_label == current_gesture:
                     pass
@@ -143,8 +143,8 @@ def generate_subtitle_from_video(_cap, device, model):
                     start_frame = frame_count
 
     # handle the last gesture after loop ends
-    # if current_gesture is not None:
-    #     predictions.append((start_frame/fps, frame_count/fps, current_gesture))
+    if current_gesture is not None:
+        predictions.append((start_frame/fps, frame_count/fps, current_gesture))
 
     return predictions
 
@@ -196,49 +196,101 @@ def generate_video_with_landmark(_cap):
 
 
 class VideoProcessor:
-    def __init__(self, model, device, threshold):
+    def __init__(self, model, device, threshold, frame_skip):
         self.model = model
         self.device = device
-        self.sequence = []
-        self.detected_label = ""
-        self.frame_count = 0
+        self.frame_skip = frame_skip
         self.threshold = threshold
+
+        # buffer for keypoints
+        self.sequence = deque(maxlen=30 * frame_skip)
+        self.frame_count = 0
+
+        # threading for non-blocking inference
+        self.detected_label = ""
+        self.confidence = 0.0
+        self.lock = threading.Lock()
+        self.is_processing = False
+
+
+    def inference(self, sequence):
+        with torch.no_grad():
+            input_data = torch.tensor(np.expand_dims(sequence, axis=0), dtype=torch.float32).to(self.device)
+            res = self.model(input_data)
+            probabilities = torch.softmax(res, dim=1)
+            max_val, max_idx = torch.max(probabilities, dim=1)
+
+            with self.lock:
+                self.confidence = float(max_val.item())
+                if self.confidence > self.threshold:
+                    self.detected_label = self.model.gestures[max_idx.item()]
+                else:
+                    self.detected_label = ""
+            
+            print("threshold:", self.threshold, " Prediction:", self.detected_label, f"({self.confidence:.2f})")
+            self.is_processing = False
+
+
+    def draw_subtitle(self, image, text, confidence):
+        height, width, _ = image.shape
+        font = cv2.FONT_HERSHEY_DUPLEX
+        font_scale = 0.8
+        thickness = 2
+        
+        # formatting text
+        display_text = f"{text} ({confidence:.2%})" if text else "No Gesture"
+        (text_width, text_height), baseline = cv2.getTextSize(display_text, font, font_scale, thickness)
+        
+        # draw semi-transparent background box
+        padding = 20
+        box_coords = ((0, height - 80), (width, height))
+        overlay = image.copy()
+        cv2.rectangle(overlay, box_coords[0], box_coords[1], (0, 0, 0), -1)
+
+        # apply transparency (alpha 0.6)
+        cv2.addWeighted(overlay, 0.6, image, 0.4, 0, image)
+        
+        # center the text
+        text_x = (width // 2) - (text_width // 2)
+        text_y = height - 35
+        
+        # shadow for text
+        cv2.putText(image, display_text, (text_x + 2, text_y + 2), font, font_scale, (0, 0, 0), thickness, cv2.LINE_AA)
+
+        # main text (green -> confident, white -> not confident)
+        color = (0, 255, 0) if confidence > self.threshold else (255, 255, 255)
+        cv2.putText(image, display_text, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+
 
     def recv(self, frame):
         image = frame.to_ndarray(format="bgr24")
         image = cv2.flip(image, 1)
+        self.frame_count += 1
 
         try:
             image, results = mediapipe_detection(image, holistic)
             draw_styled_landmarks(image, results)
-
             keypoints = extract_keypoints(results)
             self.sequence.append(keypoints)
-            self.sequence = self.sequence[-30:]
-            self.frame_count += 1
 
-            if results.left_hand_landmarks or results.right_hand_landmarks:
-                if len(self.sequence) == 30 and self.frame_count % 6 == 0:
-                    input_data = torch.tensor(np.expand_dims(self.sequence, axis=0), dtype=torch.float32).to(self.device)
+            if len(self.sequence) == (30 * self.frame_skip) and not self.is_processing:
+                if self.frame_count % self.frame_skip == 0:
                     
-                    with torch.no_grad():
-                        res = self.model(input_data)
-                        probabilities = torch.softmax(res, dim=1)
-                        max_val, max_idx = torch.max(probabilities, dim=1)
-                        predicted_label = self.model.gestures[max_idx.item()]
-                        confidence = float(max_val.item())
+                    # check if hands are actually visible before bothering the GPU
+                    if results.left_hand_landmarks or results.right_hand_landmarks:
+                        self.is_processing = True
+                        
+                        # sample the sequence based on frame_skip
+                        sequence_list = list(self.sequence)[::self.frame_skip]
+                        
+                        # start background thread
+                        thread = threading.Thread(target=self.inference, args=(sequence_list,))
+                        thread.start()
+                    
+                with self.lock:
+                    self.draw_subtitle(image, self.detected_label, self.confidence)
 
-                        self.detected_label = str(predicted_label if confidence > self.threshold else "")
-                        print("threshold:", self.threshold, " Prediction:", self.detected_label, f"({confidence:.2f})")
-
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                height, width, _ = image.shape
-                (text_width, text_height), baseline = cv2.getTextSize(self.detected_label, font, 1, 2)
-                text_x = (width // 2) - (text_width // 2)
-                text_y = height - 50
-                cv2.putText(image, f'{self.detected_label}', (text_x, text_y), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
-            
-            return av.VideoFrame.from_ndarray(image, format="bgr24")
+                return av.VideoFrame.from_ndarray(image, format="bgr24")
         
         except Exception as e:
             print(f"Error in callback: {e}")

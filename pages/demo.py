@@ -68,10 +68,15 @@ with tab1:
 with tab2:
     st.subheader("Real-time Sign Language Detection")
     st.info("Ensure your webcam is not being used by another application.")
-    threshold = st.slider("Threshold", min_value=0.0, max_value=1.0, value=0.9, step=0.05)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        threshold = st.slider("Threshold", min_value=0.0, max_value=1.0, value=0.75, step=0.05)
+    with col2:
+        frame_skip = st.slider("Frame Skipping", min_value=1, max_value=10, value=2, step=1)
 
     # initialize the streamer
-    processor = VideoProcessor(model=model, device=device, threshold=threshold)
+    processor = VideoProcessor(model=model, device=device, threshold=threshold, frame_skip=frame_skip)
     webrtc_streamer(
         key="sign-language-detector",
         mode=WebRtcMode.SENDRECV,
