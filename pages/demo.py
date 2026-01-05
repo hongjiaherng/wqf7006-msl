@@ -1,12 +1,11 @@
-import os, warnings, tempfile, cv2
+import os, warnings, tempfile, cv2, av
 import streamlit as st
-import numpy as np
 from directory import weight_dir
 from model import load_model
 from utils import (
-    get_device, create_vtt, cached_video_processing, cached_subtitle_generation, 
-    generate_subtitle_from_video, generate_video_with_landmark
+    get_device, create_vtt, generate_subtitle_from_video, generate_video_with_landmark, VideoProcessor
 )
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings("ignore")
@@ -27,6 +26,7 @@ if "gestures" not in st.session_state:
         'nasi_lemak', 'panas', 'panas_2', 'pandai_2', 'perempuan', 'pinjam', 'pukul',
         'ribut', 'sejuk'
     ]
+
 
 weight_file = os.path.join(weight_dir, 'trained_model.pth')
 device = get_device()
@@ -66,5 +66,19 @@ with tab1:
                 st.video(output_memory_file, subtitles=vtt_file.name)
     
 with tab2:
-    st.header("A dog")
-    st.image("https://static.streamlit.io/examples/dog.jpg", width=200)
+    st.subheader("Real-time Sign Language Detection")
+    st.info("Ensure your webcam is not being used by another application.")
+    threshold = st.slider("Threshold", min_value=0.0, max_value=1.0, value=0.9, step=0.05)
+
+    # initialize the streamer
+    processor = VideoProcessor(model=model, device=device, threshold=threshold)
+    webrtc_streamer(
+        key="sign-language-detector",
+        mode=WebRtcMode.SENDRECV,
+        video_frame_callback=processor.recv,
+        rtc_configuration={
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        },
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True
+    )

@@ -1,7 +1,8 @@
 import mediapipe as mp
 import numpy as np
 import streamlit as st
-import torch, cv2, tempfile, io, av
+import torch, cv2, io, av
+from streamlit_webrtc import VideoProcessorBase
 
 mp_holistic = mp.solutions.holistic # Holistic model
 mp_drawing = mp.solutions.drawing_utils # Drawing utilities
@@ -192,3 +193,54 @@ def generate_video_with_landmark(_cap):
     # reset pointer to start of the file
     output_memory_file.seek(0)
     return output_memory_file
+
+
+class VideoProcessor:
+    def __init__(self, model, device, threshold):
+        self.model = model
+        self.device = device
+        self.sequence = []
+        self.detected_label = ""
+        self.frame_count = 0
+        self.threshold = threshold
+
+    def recv(self, frame):
+        image = frame.to_ndarray(format="bgr24")
+        image = cv2.flip(image, 1)
+
+        try:
+            image, results = mediapipe_detection(image, holistic)
+            draw_styled_landmarks(image, results)
+
+            keypoints = extract_keypoints(results)
+            self.sequence.append(keypoints)
+            self.sequence = self.sequence[-30:]
+            self.frame_count += 1
+
+            if results.left_hand_landmarks or results.right_hand_landmarks:
+                if len(self.sequence) == 30 and self.frame_count % 6 == 0:
+                    input_data = torch.tensor(np.expand_dims(self.sequence, axis=0), dtype=torch.float32).to(self.device)
+                    
+                    with torch.no_grad():
+                        res = self.model(input_data)
+                        probabilities = torch.softmax(res, dim=1)
+                        max_val, max_idx = torch.max(probabilities, dim=1)
+                        predicted_label = self.model.gestures[max_idx.item()]
+                        confidence = float(max_val.item())
+
+                        self.detected_label = str(predicted_label if confidence > self.threshold else "")
+                        print("threshold:", self.threshold, " Prediction:", self.detected_label, f"({confidence:.2f})")
+
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                height, width, _ = image.shape
+                (text_width, text_height), baseline = cv2.getTextSize(self.detected_label, font, 1, 2)
+                text_x = (width // 2) - (text_width // 2)
+                text_y = height - 50
+                cv2.putText(image, f'{self.detected_label}', (text_x, text_y), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                self.detected_label = ""
+            
+            return av.VideoFrame.from_ndarray(image, format="bgr24")
+        
+        except Exception as e:
+            print(f"Error in callback: {e}")
+            return av.VideoFrame.from_ndarray(image, format="bgr24")
