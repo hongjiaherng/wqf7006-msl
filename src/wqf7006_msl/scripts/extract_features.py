@@ -50,7 +50,16 @@ def extract_keypoints(results):
 # -------------------------
 
 
+def _already_extracted(output_dir, num_frames):
+    if not os.path.isdir(output_dir):
+        return False
+    return len([f for f in os.listdir(output_dir) if f.endswith(".npy")]) >= num_frames
+
+
 def _process_video_first(video_path, output_dir, num_frames):
+    if _already_extracted(output_dir, num_frames):
+        return num_frames
+
     os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -85,6 +94,8 @@ def _process_video_first(video_path, output_dir, num_frames):
 
 
 def _process_video_uniform(video_path, output_dir, num_frames):
+    if _already_extracted(output_dir, num_frames):
+        return num_frames
     os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
