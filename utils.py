@@ -203,6 +203,8 @@ class VideoProcessor:
     def __init__(self, model, device, threshold, frame_skip):
         self.model = model
         self.device = device
+        self.mp_holistic = mp.solutions.holistic
+        self.holistic = mp_holistic.Holistic(min_detection_confidence=0.5)
         self.frame_skip = frame_skip
         self.threshold = threshold
 
@@ -215,6 +217,11 @@ class VideoProcessor:
         self.confidence = 0.0
         self.lock = threading.Lock()
         self.is_processing = False
+
+
+    def __del__(self):
+        if hasattr(self, 'holistic'):
+            self.holistic.close()
 
 
     def inference(self, sequence):
@@ -271,32 +278,31 @@ class VideoProcessor:
         image = cv2.flip(image, 1)
         self.frame_count += 1
         
-        with mp_holistic.Holistic(min_detection_confidence=0.5) as local_holistic:
-            try:
-                image, results = mediapipe_detection(image, local_holistic)
-                draw_styled_landmarks(image, results)
-                keypoints = extract_keypoints(results)
-                self.sequence.append(keypoints)
+        try:
+            results = self.holistic.process(image)
+            draw_styled_landmarks(image, results)
+            keypoints = extract_keypoints(results)
+            self.sequence.append(keypoints)
 
-                if len(self.sequence) == (30 * self.frame_skip) and not self.is_processing:
-                    if self.frame_count % self.frame_skip == 0:
+            if len(self.sequence) == (30 * self.frame_skip) and not self.is_processing:
+                if self.frame_count % self.frame_skip == 0:
+                    
+                    # check if hands are actually visible before bothering the GPU
+                    if results.left_hand_landmarks or results.right_hand_landmarks:
+                        self.is_processing = True
                         
-                        # check if hands are actually visible before bothering the GPU
-                        if results.left_hand_landmarks or results.right_hand_landmarks:
-                            self.is_processing = True
-                            
-                            # sample the sequence based on frame_skip
-                            sequence_list = list(self.sequence)[::self.frame_skip]
-                            
-                            # start background thread
-                            thread = threading.Thread(target=self.inference, args=(sequence_list,))
-                            thread.start()
+                        # sample the sequence based on frame_skip
+                        sequence_list = list(self.sequence)[::self.frame_skip]
                         
-                    with self.lock:
-                        self.draw_subtitle(image, self.detected_label, self.confidence)
+                        # start background thread
+                        thread = threading.Thread(target=self.inference, args=(sequence_list,))
+                        thread.start()
+                    
+                with self.lock:
+                    self.draw_subtitle(image, self.detected_label, self.confidence)
 
-                    return av.VideoFrame.from_ndarray(image, format="bgr24")
-        
-            except Exception as e:
-                print(f"Error in callback: {e}")
-                return av.VideoFrame.from_ndarray(image, format="bgr24")
+            return av.VideoFrame.from_ndarray(image, format="bgr24")
+    
+        except Exception as e:
+            print(f"Error in callback: {e}")
+            return av.VideoFrame.from_ndarray(image, format="bgr24")
