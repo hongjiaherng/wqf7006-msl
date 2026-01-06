@@ -6,7 +6,7 @@ from collections import deque
 
 mp_holistic = mp.solutions.holistic # Holistic model
 mp_drawing = mp.solutions.drawing_utils # Drawing utilities
-holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+# holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
 def mediapipe_detection(image,model):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Color conversion from BGR to RGB
@@ -103,54 +103,57 @@ def generate_subtitle_from_video(_cap, device, model):
     frame_count, start_frame = 0, 0
     current_gesture = None
 
-    while cap.isOpened():
-        ret, frame = cap.read()
+    with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as local_holistic:
+        while cap.isOpened():
+            ret, frame = cap.read()
 
-        if not ret:
-            break
+            if not ret:
+                break
 
-        _, results = mediapipe_detection(frame, holistic)
-        keypoints = extract_keypoints(results)
-        sequence.append(keypoints)
-        sequence = sequence[-30:]
-        frame_count += 1
-        
-        # perform prediction every 30 frames
-        if len(sequence) == 30:
-            input_data = torch.tensor(np.expand_dims(sequence, axis=0), dtype=torch.float32).to(device)
+            _, results = mediapipe_detection(frame, local_holistic)
+            keypoints = extract_keypoints(results)
+            sequence.append(keypoints)
+            sequence = sequence[-30:]
+            frame_count += 1
             
-            with torch.no_grad():
-                res = model(input_data)
-                probabilities = torch.softmax(res, dim=1)
-                max_val, max_idx = torch.max(probabilities, dim=1)
-                predicted_label = model.gestures[max_idx.item()]
-                confidence = float(max_val.item())
+            # perform prediction every 30 frames
+            if len(sequence) == 30:
+                input_data = torch.tensor(np.expand_dims(sequence, axis=0), dtype=torch.float32).to(device)
+                
+                with torch.no_grad():
+                    res = model(input_data)
+                    probabilities = torch.softmax(res, dim=1)
+                    max_val, max_idx = torch.max(probabilities, dim=1)
+                    predicted_label = model.gestures[max_idx.item()]
+                    confidence = float(max_val.item())
 
-                # print(f"frames: {len(sequence)}, Prediction: {predicted_label} ({confidence:.2f})")
+                    # print(f"frames: {len(sequence)}, Prediction: {predicted_label} ({confidence:.2f})")
 
-                # threshold logic
-                detected_label = predicted_label if confidence > 0.95 else None
+                    # threshold logic
+                    detected_label = predicted_label if confidence > 0.95 else None
 
-                if detected_label == current_gesture:
-                    pass
-                else:
-                    if current_gesture is not None:
-                        end_time = (frame_count - 1) / fps
-                        start_time = start_frame / fps
-                        predictions.append((start_time, end_time, current_gesture))
-                    
-                    current_gesture = detected_label
-                    start_frame = frame_count
+                    if detected_label == current_gesture:
+                        pass
+                    else:
+                        if current_gesture is not None:
+                            end_time = (frame_count - 1) / fps
+                            start_time = start_frame / fps
+                            predictions.append((start_time, end_time, current_gesture))
+                        
+                        current_gesture = detected_label
+                        start_frame = frame_count
 
-    # handle the last gesture after loop ends
-    if current_gesture is not None:
-        predictions.append((start_frame/fps, frame_count/fps, current_gesture))
+        # handle the last gesture after loop ends
+        if current_gesture is not None:
+            predictions.append((start_frame/fps, frame_count/fps, current_gesture))
 
     return predictions
 
 
 # generate video with landmark
 def generate_video_with_landmark(_cap):
+    mp_holistic = mp.solutions.holistic
+
     # open video with OpenCV
     cap = cv2.VideoCapture(_cap)
     
@@ -165,40 +168,43 @@ def generate_video_with_landmark(_cap):
     stream.height = height
     stream.pix_fmt = 'yuv420p'
 
-    while cap.isOpened():
-        ret, frame = cap.read()
+    with mp_holistic.Holistic(min_detection_confidence=0.5) as local_holistic:
+        while cap.isOpened():
+            ret, frame = cap.read()
 
-        if not ret:
-            break
+            if not ret:
+                break
 
-        image, results = mediapipe_detection(frame, holistic)
+            image, results = mediapipe_detection(frame, local_holistic)
 
-        # write the frame with landmarks to the output video
-        draw_styled_landmarks(image, results)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # write the frame with landmarks to the output video
+            draw_styled_landmarks(image, results)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # create frame
-        av_frame = av.VideoFrame.from_ndarray(image, format='rgb24')
+            # create frame
+            av_frame = av.VideoFrame.from_ndarray(image, format='rgb24')
 
-        # encode and mux
-        for packet in stream.encode(av_frame):
+            # encode and mux
+            for packet in stream.encode(av_frame):
+                output_container.mux(packet)
+
+        # flush the encoder
+        for packet in stream.encode(None):
             output_container.mux(packet)
+        output_container.close()
+        cap.release()
 
-    # flush the encoder
-    for packet in stream.encode(None):
-        output_container.mux(packet)
-    output_container.close()
-    cap.release()
-
-    # reset pointer to start of the file
-    output_memory_file.seek(0)
-    return output_memory_file
+        # reset pointer to start of the file
+        output_memory_file.seek(0)
+        return output_memory_file
 
 
 class VideoProcessor:
     def __init__(self, model, device, threshold, frame_skip):
         self.model = model
         self.device = device
+        self.mp_holistic = mp.solutions.holistic
+        self.holistic = mp_holistic.Holistic(min_detection_confidence=0.5)
         self.frame_skip = frame_skip
         self.threshold = threshold
 
@@ -211,6 +217,11 @@ class VideoProcessor:
         self.confidence = 0.0
         self.lock = threading.Lock()
         self.is_processing = False
+
+
+    def __del__(self):
+        if hasattr(self, 'holistic'):
+            self.holistic.close()
 
 
     def inference(self, sequence):
@@ -266,9 +277,9 @@ class VideoProcessor:
         image = frame.to_ndarray(format="bgr24")
         image = cv2.flip(image, 1)
         self.frame_count += 1
-
+        
         try:
-            image, results = mediapipe_detection(image, holistic)
+            results = self.holistic.process(image)
             draw_styled_landmarks(image, results)
             keypoints = extract_keypoints(results)
             self.sequence.append(keypoints)
@@ -290,8 +301,8 @@ class VideoProcessor:
                 with self.lock:
                     self.draw_subtitle(image, self.detected_label, self.confidence)
 
-                return av.VideoFrame.from_ndarray(image, format="bgr24")
-        
+            return av.VideoFrame.from_ndarray(image, format="bgr24")
+    
         except Exception as e:
             print(f"Error in callback: {e}")
             return av.VideoFrame.from_ndarray(image, format="bgr24")
