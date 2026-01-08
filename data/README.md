@@ -19,7 +19,7 @@ wqf7006-msl/
         │   ├── first_30/ (first 30 frames of each video)
         │   │   ├── abang/
         │   │   │   ├── abang_1_1_1.mp4/
-        │   │   │   │   ├── 00.npy (288-dim landmark features)
+        │   │   │   │   ├── 00.npy (258-dim landmark features)
         │   │   │   │   ├── ...
         │   │   │   │   └── 29.npy
         │   │   │   └── abang_4_6_3.mp4/
