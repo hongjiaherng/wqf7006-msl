@@ -63,6 +63,9 @@ def _process_video_first(video_path, output_path, num_frames):
         return existing.shape[0]
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    warning_path = os.path.join(
+        os.path.dirname(os.path.dirname(output_path)), "warning.txt"
+    )
 
     cap = cv2.VideoCapture(video_path)
     keypoints_list = []
@@ -91,10 +94,16 @@ def _process_video_first(video_path, output_path, num_frames):
 
     if len(keypoints_list) == 0 and frame_idx > 0:
         warnings.warn(f"No keypoints found in {video_path}, no npy file will be saved.")
+        with open(warning_path, "a") as f:
+            f.write(f"No keypoints found in {video_path}, no npy file will be saved.\n")
+            f.flush()
         return 0
 
     elif len(keypoints_list) == 0 and frame_idx == 0:
         warnings.warn(f"Invalid video: {video_path}, no npy file will be saved.")
+        with open(warning_path, "a") as f:
+            f.write(f"Invalid video: {video_path}, no npy file will be saved.\n")
+            f.flush()
         return 0
 
     # Stack all frames into a single array: (num_frames, feature_dim)
@@ -112,6 +121,9 @@ def _process_video_uniform(video_path, output_path, num_frames):
         return existing.shape[0]
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    warning_path = os.path.join(
+        os.path.dirname(os.path.dirname(output_path)), "warning.txt"
+    )
 
     cap = cv2.VideoCapture(video_path)
     keypoints_list = []
@@ -140,10 +152,16 @@ def _process_video_uniform(video_path, output_path, num_frames):
 
     if len(keypoints_list) == 0 and frame_idx > 0:
         warnings.warn(f"No keypoints found in {video_path}, no npy file will be saved.")
+        with open(warning_path, "a") as f:
+            f.write(f"No keypoints found in {video_path}, no npy file will be saved.\n")
+            f.flush()
         return 0
 
     elif len(keypoints_list) == 0 and frame_idx == 0:
         warnings.warn(f"Invalid video: {video_path}, no npy file will be saved.")
+        with open(warning_path, "a") as f:
+            f.write(f"Invalid video: {video_path}, no npy file will be saved.\n")
+            f.flush()
         return 0
 
     # Uniform sampling AFTER extraction
